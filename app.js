@@ -237,23 +237,38 @@ class MusicApp {
             return Promise.resolve([]);
         }
 
-        const searchUrl = `https://api.spotify.com/v1/search?q=${encodeURIComponent(trimmedQuery)}&type=track&limit=20`;
-        console.log('Searching Spotify:', trimmedQuery);
+        const params = new URLSearchParams({
+            q: trimmedQuery,
+            type: 'track',
+            market: 'from_token',
+            limit: '20'
+        });
+        const searchUrl = `https://api.spotify.com/v1/search?${params.toString()}`;
+        console.log('Searching Spotify:', trimmedQuery, searchUrl);
 
         return fetch(searchUrl, {
-            headers: { 'Authorization': `Bearer ${this.spotifyAccessToken}` }
+            headers: {
+                'Authorization': `Bearer ${this.spotifyAccessToken}`,
+                'Accept': 'application/json'
+            }
         })
         .then(res => {
             if (!res.ok) {
                 if (res.status === 400) {
-                    throw new Error('Bad request to Spotify API. Check your search term.');
+                    return res.text().then(body => {
+                        console.error('Spotify search 400 body:', body);
+                        throw new Error('Bad request to Spotify API. Check your search term.');
+                    });
                 } else if (res.status === 401) {
                     console.warn('Spotify token may be expired');
                     throw new Error('Spotify token expired. Please re-login in Settings.');
                 } else if (res.status === 429) {
                     throw new Error('Rate limited by Spotify. Please try again later.');
                 }
-                throw new Error(`API error: ${res.status} ${res.statusText}`);
+                return res.text().then(body => {
+                    console.error(`Spotify search ${res.status} body:`, body);
+                    throw new Error(`API error: ${res.status} ${res.statusText}`);
+                });
             }
             return res.json();
         })
