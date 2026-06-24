@@ -63,7 +63,17 @@
 
         // Constants
         const SPOTIFY_CLIENT_ID = '5f51c9f427df42969a2d500c614f82a4';
-        const REDIRECT_URI = `${window.location.origin}/spotify-redirect.html`;
+        const redirectUri = window.location.href.replace(/[^/]*$/, 'spotify-redirect.html');
+
+        if (redirectUri.startsWith('file:') || window.location.origin === 'null') {
+            statusEl.textContent = '⚠ Spotify redirect page must be served over HTTP/S.';
+            statusEl.style.color = '#f39c12';
+            console.error('Invalid redirect origin:', window.location.origin);
+            setTimeout(() => {
+                window.location.href = 'settings.html';
+            }, 3000);
+            throw new Error('Invalid redirect origin');
+        }
 
         if (error) {
             statusEl.textContent = `❌ Error: ${error}`;

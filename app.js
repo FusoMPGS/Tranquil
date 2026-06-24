@@ -13,6 +13,7 @@ class MusicApp {
         
         // Spotify Integration
         this.spotifyClientId = '5f51c9f427df42969a2d500c614f82a4';
+        this.spotifyRedirectHost = this.loadFromStorage('spotifyRedirectHost');
         this.spotifyRedirectUri = this.getSpotifyRedirectUri();
         this.spotifyAccessToken = this.loadFromStorage('spotifyAccessToken');
         this.spotifyRefreshToken = this.loadFromStorage('spotifyRefreshToken');
@@ -39,6 +40,13 @@ class MusicApp {
     }
 
     spotifyLogin() {
+        this.spotifyRedirectUri = this.getSpotifyRedirectUri();
+        if (!this.isSpotifyRedirectUriValid(this.spotifyRedirectUri)) {
+            alert(`Spotify login requires a registered HTTPS redirect URI.\n\nCurrent redirect URI: ${this.spotifyRedirectUri}\n\nPlease host the app via http(s) and register this exact URI in Spotify Developer Dashboard.`);
+            console.error('Invalid Spotify redirect URI:', this.spotifyRedirectUri);
+            return;
+        }
+
         // Generate PKCE code verifier
         const codeVerifier = this.generateCodeVerifier();
         sessionStorage.setItem('spotify_code_verifier', codeVerifier);
@@ -87,12 +95,28 @@ class MusicApp {
     }
 
     getSpotifyRedirectUri() {
-        if (window.location.origin && window.location.origin !== 'null') {
-            return `${window.location.origin}/spotify-redirect.html`;
+        const override = this.spotifyRedirectHost;
+        if (override) {
+            if (override.startsWith('http://') || override.startsWith('https://')) {
+                return `${override.replace(/\/$/, '')}/spotify-redirect.html`;
+            }
+            return `https://${override.replace(/\/$/, '')}/spotify-redirect.html`;
         }
 
-        const path = window.location.pathname.replace(/\/[^/]*$/, '/spotify-redirect.html');
-        return `${window.location.protocol}//${window.location.host}${path}`;
+        if (window.location.origin && !window.location.origin.startsWith('file:') && window.location.origin !== 'null') {
+            if (window.location.pathname.endsWith('/')) {
+                return `${window.location.origin}${window.location.pathname}spotify-redirect.html`;
+            }
+            return `${window.location.origin}${window.location.pathname.replace(/[^/]*$/, 'spotify-redirect.html')}`;
+        }
+
+        return window.location.href.replace(/[^/]*$/, 'spotify-redirect.html');
+    }
+
+    isSpotifyRedirectUriValid(uri) {
+        if (!uri) return false;
+        if (uri.startsWith('file:')) return false;
+        return uri.startsWith('http://') || uri.startsWith('https://');
     }
 
     async generateCodeChallengeSHA256(codeVerifier) {
