@@ -13,7 +13,7 @@ class MusicApp {
         
         // Spotify Integration
         this.spotifyClientId = '5f51c9f427df42969a2d500c614f82a4';
-        this.spotifyRedirectUri = 'https://fusompgs.github.io/Tranquil/spotify-redirect.html';  // Use the redirect page
+        this.spotifyRedirectUri = this.getSpotifyRedirectUri();
         this.spotifyAccessToken = this.loadFromStorage('spotifyAccessToken');
         this.spotifyRefreshToken = this.loadFromStorage('spotifyRefreshToken');
         this.spotifyUser = this.loadFromStorage('spotifyUser');
@@ -32,31 +32,7 @@ class MusicApp {
 
     // ==================== SPOTIFY INTEGRATION ====================
     checkSpotifyAuth() {
-        // Check if returning from Spotify auth redirect
-        const hash = window.location.hash;
-        if (hash) {
-            const params = new URLSearchParams(hash.substring(1));
-            const accessToken = params.get('access_token');
-            const error = params.get('error');
-            
-            if (error) {
-                console.error('Spotify auth error:', error);
-                alert(`Spotify login error: ${error}`);
-                return;
-            }
-            
-            if (accessToken) {
-                console.log('Spotify token received successfully');
-                this.spotifyAccessToken = accessToken;
-                this.saveToStorage('spotifyAccessToken', accessToken);
-                this.fetchSpotifyUser();
-                this.initSpotifyPlayback();
-                window.history.replaceState({}, document.title, window.location.pathname);
-                alert('✓ Successfully logged in to Spotify!');
-            }
-        }
-        
-        // Check localStorage for existing token
+        // Spotify token is stored in localStorage by the redirect page after authorization.
         if (this.spotifyAccessToken) {
             this.fetchSpotifyUser();
         }
@@ -108,6 +84,15 @@ class MusicApp {
             verifier += chars.charAt(Math.floor(Math.random() * chars.length));
         }
         return verifier;
+    }
+
+    getSpotifyRedirectUri() {
+        if (window.location.origin && window.location.origin !== 'null') {
+            return `${window.location.origin}/spotify-redirect.html`;
+        }
+
+        const path = window.location.pathname.replace(/\/[^/]*$/, '/spotify-redirect.html');
+        return `${window.location.protocol}//${window.location.host}${path}`;
     }
 
     async generateCodeChallengeSHA256(codeVerifier) {
@@ -172,6 +157,7 @@ class MusicApp {
             console.log('✓ Spotify user loaded:', data.display_name);
             this.fetchSpotifyPlaylists();
             this.updateSpotifyUI();
+            this.initSpotifyPlayback();
         })
         .catch(err => {
             console.error('Spotify user fetch error:', err);
@@ -282,42 +268,91 @@ class MusicApp {
 
         tracks.forEach(track => {
             const resultDiv = document.createElement('div');
-            resultDiv.innerHTML = `
-                <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px; background: #222; border-radius: 5px; margin: 5px 0;">
-                    <div style="color: white; flex: 1;">
-                        <strong>${track.name}</strong><br>
-                        <small>${track.artists.map(a => a.name).join(', ')}</small>
-                    </div>
-                    <div style="display: flex; gap: 10px;">
-                        <button onclick="app.playSpotifyTrack('${track.uri}')" style="padding: 5px 10px; background: #1db954; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">Play</button>
-                        <button onclick="app.addSpotifyToPlaylist('${track.name}', '${track.artists[0].name}')" style="padding: 5px 10px; background: #1dd1a1; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">Add</button>
-                    </div>
-                </div>
+            resultDiv.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 10px; background: #222; border-radius: 5px; margin: 5px 0;';
+
+            const infoDiv = document.createElement('div');
+            infoDiv.style.flex = '1';
+            infoDiv.style.color = 'white';
+            infoDiv.innerHTML = `
+                <strong>${track.name}</strong><br>
+                <small>${track.artists.map(a => a.name).join(', ')}</small><br>
+                <small style="color:#aaa;">${track.album ? track.album.name : ''}</small>
             `;
+
+            const actionsDiv = document.createElement('div');
+            actionsDiv.style.display = 'flex';
+            actionsDiv.style.gap = '10px';
+
+            const playButton = document.createElement('button');
+            playButton.textContent = track.preview_url ? 'Play Preview' : 'Open in Spotify';
+            playButton.style.cssText = 'padding: 5px 10px; background: #1db954; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;';
+            playButton.addEventListener('click', () => this.playSpotifyTrack(track));
+
+            const addButton = document.createElement('button');
+            addButton.textContent = 'Add';
+            addButton.style.cssText = 'padding: 5px 10px; background: #1dd1a1; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;';
+            addButton.addEventListener('click', () => this.addSpotifyToPlaylist(track.name, track.artists[0]?.name || 'Unknown Artist'));
+
+            actionsDiv.appendChild(playButton);
+            actionsDiv.appendChild(addButton);
+            resultDiv.appendChild(infoDiv);
+            resultDiv.appendChild(actionsDiv);
             resultsContainer.appendChild(resultDiv);
         });
     }
 
-    playSpotifyTrack(trackUri) {
+    playSpotifyTrack(track) {
         if (!this.spotifyAccessToken) {
             alert('Please login with Spotify first');
             return;
         }
 
-        // For web playback, we need the Web Playback SDK
         if (window.Spotify && window.Spotify.Player) {
-            fetch(`https://api.spotify.com/v1/me/player/play`, {
+            fetch('https://api.spotify.com/v1/me/player/play', {
                 method: 'PUT',
                 headers: {
                     'Authorization': `Bearer ${this.spotifyAccessToken}`,
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ uris: [trackUri] })
+                body: JSON.stringify({ uris: [track.uri] })
             })
-            .then(() => console.log('Playing Spotify track'))
-            .catch(err => console.error('Playback error:', err));
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`Playback failed: ${response.status}`);
+                }
+                console.log('Playing Spotify track via Web Playback SDK');
+            })
+            .catch(err => {
+                console.warn('Playback API error, falling back to preview/open:', err);
+                this.playSpotifyTrackFallback(track);
+            });
         } else {
-            alert('Spotify Web Playback SDK not available. Make sure you\'re logged in with Premium.');
+            this.playSpotifyTrackFallback(track);
+        }
+    }
+
+    playSpotifyTrackFallback(track) {
+        if (track.preview_url) {
+            this.currentSong = {
+                id: track.uri,
+                title: track.name,
+                artist: track.artists.map(a => a.name).join(', '),
+                album: track.album ? track.album.name : 'Spotify',
+                url: track.preview_url,
+                isSpotify: true
+            };
+            this.playSong(this.currentSong);
+            return;
+        }
+
+        const trackId = track.uri ? track.uri.split(':').pop() : null;
+        const externalUrl = track.external_urls?.spotify || (trackId ? `https://open.spotify.com/track/${trackId}` : null);
+
+        if (externalUrl) {
+            window.open(externalUrl, '_blank');
+            alert('Preview unavailable. Opening Spotify to play the track.');
+        } else {
+            alert('Unable to play this Spotify track. Please open it directly in Spotify.');
         }
     }
 
