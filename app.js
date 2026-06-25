@@ -246,8 +246,7 @@ class MusicApp {
         const params = new URLSearchParams({
             q: trimmedQuery,
             type: 'track',
-            market: 'from_token',
-            limit: '20'
+            limit: 20
         });
         const searchUrl = `https://api.spotify.com/v1/search?${params.toString()}`;
         console.log('Searching Spotify:', trimmedQuery, searchUrl);
