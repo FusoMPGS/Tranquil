@@ -47,6 +47,12 @@ class MusicApp {
             return;
         }
 
+        // Clear any previous Spotify login state to allow switching accounts cleanly
+        this.spotifyAccessToken = null;
+        this.spotifyUser = null;
+        this.saveToStorage('spotifyAccessToken', null);
+        this.saveToStorage('spotifyUser', null);
+
         // Generate PKCE code verifier
         const codeVerifier = this.generateCodeVerifier();
         sessionStorage.setItem('spotify_code_verifier', codeVerifier);

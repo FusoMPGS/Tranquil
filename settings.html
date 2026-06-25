@@ -70,7 +70,9 @@
                 <strong style="color: #1db954;">💡 Tips for Success:</strong><br>
                 • Make sure you have <strong>Spotify Premium</strong><br>
                 • Check that your redirect URI is set in Spotify Developer Dashboard:<br>
-                <code style="color: #1db954; font-size: 11px;">https://your-host.com/spotify-redirect.html</code><br>
+                <code id="spotifyRedirectUriText" style="color: #1db954; font-size: 11px; display: block; word-break: break-all;">https://your-host.com/spotify-redirect.html</code>
+                <input id="spotifyRedirectUriInput" type="text" readonly style="width:100%; margin-top:8px; padding:8px; border-radius:5px; border:1px solid #333; background:#121212; color:#fff; font-size:12px;" value="" />
+                <button id="copyRedirectUriBtn" style="margin-top:8px; padding:8px 12px; background:#1db954; color:#fff; border:none; border-radius:5px; cursor:pointer;">Copy redirect URI</button><br>
                 • Use the same host as your app origin when registering Spotify redirect URIs<br>
                 • After login, you'll be redirected back automatically<br>
                 • Check console (F12) for any error messages
@@ -172,6 +174,27 @@
                 const spotifyLoginBtn = document.getElementById('spotifyLoginBtn');
                 const spotifyLogoutBtn = document.getElementById('spotifyLogoutBtn');
                 const spotifyUsername = document.getElementById('spotifyUsername');
+                const spotifyRedirectUriText = document.getElementById('spotifyRedirectUriText');
+
+                if (spotifyRedirectUriText && app.spotifyRedirectUri) {
+                    spotifyRedirectUriText.textContent = app.spotifyRedirectUri;
+                }
+
+                const spotifyRedirectUriInput = document.getElementById('spotifyRedirectUriInput');
+                if (spotifyRedirectUriInput && app.spotifyRedirectUri) {
+                    spotifyRedirectUriInput.value = app.spotifyRedirectUri;
+                }
+
+                const copyRedirectUriBtn = document.getElementById('copyRedirectUriBtn');
+                if (copyRedirectUriBtn) {
+                    copyRedirectUriBtn.addEventListener('click', () => {
+                        if (spotifyRedirectUriInput) {
+                            spotifyRedirectUriInput.select();
+                            document.execCommand('copy');
+                            alert('Redirect URI copied to clipboard');
+                        }
+                    });
+                }
 
                 if (app.spotifyUser) {
                     spotifyStatus.textContent = '✓ Connected to Spotify';
