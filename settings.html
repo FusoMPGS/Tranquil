@@ -59,6 +59,7 @@
         <div style="display: flex; gap: 10px; flex-wrap: wrap;">
             <button id="spotifyLoginBtn" onclick="console.log('Spotify login clicked'); app.spotifyLogin()" style="padding: 10px 20px; background: #1DB954; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">Login with Spotify</button>
             <button id="spotifyLogoutBtn" onclick="app.spotifyLogout(); location.reload();" style="padding: 10px 20px; background: #e74c3c; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; display: none;">Logout from Spotify</button>
+            <button id="spotifyResetBtn" style="padding: 10px 20px; background: #ffb86b; color: black; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">Reset Spotify Login</button>
         </div>
         <div style="margin-top: 15px; padding: 10px; background: #0a0a0a; border-radius: 5px; border-left: 3px solid #1db954;">
             <p style="color: #aaa; font-size: 12px; margin: 0;">
@@ -225,6 +226,17 @@
             window.addEventListener('storage', () => {
                 setTimeout(updateSpotifyDisplay, 500);
             });
+            const spotifyResetBtn = document.getElementById('spotifyResetBtn');
+            if (spotifyResetBtn) {
+                spotifyResetBtn.addEventListener('click', () => {
+                    if (confirm('Reset Spotify login and remove saved tokens?')) {
+                        app.spotifyLogout();
+                        app.spotifyRefreshToken = null;
+                        app.saveToStorage('spotifyRefreshToken', null);
+                        setTimeout(() => location.reload(), 200);
+                    }
+                });
+            }
             if (app.currentUser) {
                 document.getElementById('authSection').style.display = 'none';
             }

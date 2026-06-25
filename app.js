@@ -39,24 +39,51 @@ class MusicApp {
         }
     }
 
-    spotifyLogin() {
-        this.spotifyRedirectUri = this.getSpotifyRedirectUri();
-        if (!this.isSpotifyRedirectUriValid(this.spotifyRedirectUri)) {
-            alert(`Spotify login requires a registered HTTPS redirect URI.\n\nCurrent redirect URI: ${this.spotifyRedirectUri}\n\nPlease host the app via http(s) and register this exact URI in Spotify Developer Dashboard.`);
-            console.error('Invalid Spotify redirect URI:', this.spotifyRedirectUri);
-            return;
+    async fetchSpotifyUser() {
+        if (!this.spotifyAccessToken) return;
+
+        try {
+            let res = await fetch('https://api.spotify.com/v1/me', {
+                headers: { 'Authorization': `Bearer ${this.spotifyAccessToken}` }
+            });
+
+            if (res.status === 401) {
+                const refreshed = await this.refreshSpotifyToken();
+                if (refreshed) {
+                    res = await fetch('https://api.spotify.com/v1/me', {
+                        headers: { 'Authorization': `Bearer ${this.spotifyAccessToken}` }
+                    });
+                } else {
+                    this.spotifyAccessToken = null;
+                    this.saveToStorage('spotifyAccessToken', null);
+                    throw new Error('Token expired');
+                }
+            }
+
+            const data = await res.json();
+            if (data.error) {
+                console.error('Spotify API error:', data.error);
+                this.spotifyAccessToken = null;
+                this.saveToStorage('spotifyAccessToken', null);
+                return;
+            }
+
+            this.spotifyUser = data;
+            this.saveToStorage('spotifyUser', data);
+            console.log('✓ Spotify user loaded:', data.display_name);
+            this.fetchSpotifyPlaylists();
+            this.updateSpotifyUI();
+        } catch (err) {
+            console.error('Spotify user fetch error:', err);
+            this.spotifyAccessToken = null;
+            this.saveToStorage('spotifyAccessToken', null);
         }
-
-        // Clear any previous Spotify login state to allow switching accounts cleanly
-        this.spotifyAccessToken = null;
-        this.spotifyUser = null;
-        this.saveToStorage('spotifyAccessToken', null);
-        this.saveToStorage('spotifyUser', null);
-
+    }
+    spotifyLogin() {
         // Generate PKCE code verifier
         const codeVerifier = this.generateCodeVerifier();
         sessionStorage.setItem('spotify_code_verifier', codeVerifier);
-        
+
         // Generate code challenge (SHA256 of verifier)
         this.generateCodeChallengeSHA256(codeVerifier).then(codeChallenge => {
             const scopes = [
@@ -67,9 +94,9 @@ class MusicApp {
                 'user-read-playback-state',
                 'user-modify-playback-state',
                 'playlist-read-private',
-                'playlist-read-collaborative' 
+                'playlist-read-collaborative'
             ];
-            
+
             const params = new URLSearchParams({
                 client_id: this.spotifyClientId,
                 response_type: 'code',
@@ -79,7 +106,7 @@ class MusicApp {
                 code_challenge: codeChallenge,
                 show_dialog: 'true'
             });
-            
+
             const authUrl = `https://accounts.spotify.com/authorize?${params.toString()}`;
             console.log('✓ Spotify PKCE login initiated');
             window.location.href = authUrl;
@@ -150,51 +177,77 @@ class MusicApp {
         }
     }
 
+    async refreshSpotifyToken() {
+        if (!this.spotifyRefreshToken) return false;
+
+        const tokenParams = new URLSearchParams({
+            client_id: this.spotifyClientId,
+            grant_type: 'refresh_token',
+            refresh_token: this.spotifyRefreshToken
+        });
+
+        try {
+            const res = await fetch('https://accounts.spotify.com/api/token', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: tokenParams.toString()
+            });
+
+            const data = await res.json();
+            if (data && data.access_token) {
+                this.spotifyAccessToken = data.access_token;
+                this.saveToStorage('spotifyAccessToken', data.access_token);
+                if (data.refresh_token) {
+                    this.spotifyRefreshToken = data.refresh_token;
+                    this.saveToStorage('spotifyRefreshToken', data.refresh_token);
+                }
+                console.log('✓ Spotify access token refreshed');
+                return true;
+            }
+
+            console.error('Failed to refresh Spotify token:', data);
+            this.spotifyAccessToken = null;
+            this.saveToStorage('spotifyAccessToken', null);
+            return false;
+        } catch (err) {
+            console.error('Refresh token error:', err);
+            return false;
+        }
+    }
+
+    async ensureValidSpotifyToken() {
+        if (this.spotifyAccessToken) return true;
+        if (this.spotifyRefreshToken) {
+            return await this.refreshSpotifyToken();
+        }
+        return false;
+    }
+
+    sanitizeSpotifyQuery(q) {
+        if (!q) return '';
+        // Remove control characters and common problematic punctuation
+        let s = q.replace(/[\u0000-\u001F\u007F]/g, '');
+        // Replace special characters with space, collapse whitespace, trim
+        s = s.replace(/[^\p{L}\p{N} \-']/gu, ' ');
+        s = s.replace(/\s+/g, ' ').trim();
+        // Limit length to 200 characters to be safe
+        if (s.length > 200) s = s.slice(0, 200);
+        return s;
+    }
+
     spotifyLogout() {
         this.spotifyAccessToken = null;
+        this.spotifyRefreshToken = null;
         this.spotifyUser = null;
         this.spotifyPlaylists = [];
         this.saveToStorage('spotifyAccessToken', null);
+        this.saveToStorage('spotifyRefreshToken', null);
         this.saveToStorage('spotifyUser', null);
         this.useSpotifyPlayback = false;
         alert('Logged out from Spotify');
     }
 
-    fetchSpotifyUser() {
-        if (!this.spotifyAccessToken) return;
-
-        fetch('https://api.spotify.com/v1/me', {
-            headers: { 'Authorization': `Bearer ${this.spotifyAccessToken}` }
-        })
-        .then(res => {
-            if (res.status === 401) {
-                // Token expired
-                this.spotifyAccessToken = null;
-                this.saveToStorage('spotifyAccessToken', null);
-                throw new Error('Token expired');
-            }
-            return res.json();
-        })
-        .then(data => {
-            if (data.error) {
-                console.error('Spotify API error:', data.error);
-                this.spotifyAccessToken = null;
-                this.saveToStorage('spotifyAccessToken', null);
-                return;
-            }
-            this.spotifyUser = data;
-            this.saveToStorage('spotifyUser', data);
-            console.log('✓ Spotify user loaded:', data.display_name);
-            this.fetchSpotifyPlaylists();
-            this.updateSpotifyUI();
-            this.initSpotifyPlayback();
-        })
-        .catch(err => {
-            console.error('Spotify user fetch error:', err);
-            this.spotifyAccessToken = null;
-            this.saveToStorage('spotifyAccessToken', null);
-        });
-    }
+    
 
     updateSpotifyUI() {
         // Update UI in settings page if it exists
@@ -216,87 +269,117 @@ class MusicApp {
         }
     }
 
-    fetchSpotifyPlaylists() {
+    async fetchSpotifyPlaylists() {
         if (!this.spotifyAccessToken) return;
 
-        fetch('https://api.spotify.com/v1/me/playlists?limit=50', {
-            headers: { 'Authorization': `Bearer ${this.spotifyAccessToken}` }
-        })
-        .then(res => res.json())
-        .then(data => {
+        try {
+            let res = await fetch('https://api.spotify.com/v1/me/playlists?limit=50', {
+                headers: { 'Authorization': `Bearer ${this.spotifyAccessToken}` }
+            });
+
+            if (res.status === 401) {
+                const refreshed = await this.refreshSpotifyToken();
+                if (refreshed) {
+                    res = await fetch('https://api.spotify.com/v1/me/playlists?limit=50', {
+                        headers: { 'Authorization': `Bearer ${this.spotifyAccessToken}` }
+                    });
+                } else {
+                    throw new Error('Token expired');
+                }
+            }
+
+            const data = await res.json();
             this.spotifyPlaylists = data.items || [];
             console.log('Spotify playlists:', this.spotifyPlaylists);
-        })
-        .catch(err => console.error('Spotify playlists fetch error:', err));
+        } catch (err) {
+            console.error('Spotify playlists fetch error:', err);
+        }
     }
 
-    searchSpotify(query) {
+    searchSpotify(query, isFallback = false) {
         if (!this.spotifyAccessToken) {
             alert('Please login with Spotify to search');
             return Promise.reject('Not authenticated');
         }
 
-        // Validate and trim query
-        const trimmedQuery = query ? query.trim() : '';
-        if (!trimmedQuery || trimmedQuery.length === 0) {
-            alert('Please enter a search term');
-            return Promise.resolve([]);
-        }
-
-        const params = new URLSearchParams({
-            q: trimmedQuery,
-            type: 'track',
-            market: 'US'
-        });
-        const searchUrl = `https://api.spotify.com/v1/search?${params.toString()}`;
-        console.log('Searching Spotify:', trimmedQuery, searchUrl);
-
-        return fetch(searchUrl, {
-            headers: {
-                'Authorization': `Bearer ${this.spotifyAccessToken}`,
-                'Accept': 'application/json'
+        // Ensure token still valid (attempt refresh if needed)
+        return this.ensureValidSpotifyToken().then(valid => {
+            if (!valid) {
+                alert('Spotify session expired. Please login again in Settings.');
+                return [];
             }
-        })
-        .then(res => {
-            if (!res.ok) {
-                if (res.status === 400) {
-                    return res.text().then(body => {
-                        console.error('Spotify search 400 body:', body);
-                        throw new Error('Bad request to Spotify API. Check your search term.');
-                    });
-                } else if (res.status === 401) {
-                    console.warn('Spotify token may be expired');
-                    throw new Error('Spotify token expired. Please re-login in Settings.');
-                } else if (res.status === 429) {
-                    throw new Error('Rate limited by Spotify. Please try again later.');
+
+            // continue with search using refreshed token
+
+            // Validate and trim query
+            const trimmedQuery = query ? query.trim() : '';
+            if (!trimmedQuery || trimmedQuery.length === 0) {
+                alert('Please enter a search term');
+                return [];
+            }
+
+            const safeQuery = this.sanitizeSpotifyQuery(trimmedQuery) || trimmedQuery;
+            const params = new URLSearchParams({
+                q: safeQuery,
+                type: 'track',
+                market: 'US'
+            });
+            const searchUrl = `https://api.spotify.com/v1/search?${params.toString()}`;
+            console.log('Searching Spotify:', trimmedQuery, searchUrl);
+
+            return fetch(searchUrl, {
+                headers: {
+                    'Authorization': `Bearer ${this.spotifyAccessToken}`,
+                    'Accept': 'application/json'
                 }
-                return res.text().then(body => {
-                    console.error(`Spotify search ${res.status} body:`, body);
-                    throw new Error(`API error: ${res.status} ${res.statusText}`);
-                });
-            }
-            return res.json();
-        })
-        .then(data => {
-            // Handle Spotify API error response
-            if (data && data.error) {
-                console.error('Spotify API error:', data.error);
-                throw new Error(`Spotify API error: ${data.error.message || data.error}`);
-            }
-            
-            // Safely extract tracks
-            if (data && data.tracks && Array.isArray(data.tracks.items)) {
-                console.log(`Found ${data.tracks.items.length} tracks`);
-                return data.tracks.items;
-            }
-            
-            console.warn('Unexpected API response format:', data);
-            return [];
-        })
-        .catch(err => {
-            console.error('Spotify search error:', err);
-            alert(`Error searching Spotify: ${err.message || 'Please try again.'}`);
-            return [];
+            })
+            .then(res => {
+                if (!res.ok) {
+                    if (res.status === 400) {
+                        return res.text().then(body => {
+                            console.error('Spotify search 400 body:', body);
+                            // Attempt a fallback sanitized search if this wasn't already a fallback
+                            if (!isFallback) {
+                                const fallback = trimmedQuery.replace(/[^a-zA-Z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 100);
+                                if (fallback && fallback !== trimmedQuery) {
+                                    console.log('Retrying Spotify search with fallback query:', fallback);
+                                    return this.searchSpotify(fallback, true);
+                                }
+                            }
+                            throw new Error('Bad request to Spotify API. Check your search term.');
+                        });
+                    } else if (res.status === 401) {
+                        console.warn('Spotify token may be expired');
+                        // Try refreshing once
+                        return this.refreshSpotifyToken().then(ok => {
+                            if (ok) return this.searchSpotify(query);
+                            throw new Error('Spotify token expired. Please re-login in Settings.');
+                        });
+                    } else if (res.status === 429) {
+                        throw new Error('Rate limited by Spotify. Please try again later.');
+                    }
+                    return res.text().then(body => {
+                        console.error(`Spotify search ${res.status} body:`, body);
+                        throw new Error(`API error: ${res.status} ${res.statusText}`);
+                    });
+                }
+                return res.json();
+            })
+            .then(data => {
+                if (data && data.error) {
+                    console.error('Spotify API error:', data.error);
+                    throw new Error(`Spotify API error: ${data.error.message || data.error}`);
+                }
+                if (data && data.tracks && Array.isArray(data.tracks.items)) {
+                    return data.tracks.items;
+                }
+                return [];
+            })
+            .catch(err => {
+                console.error('Spotify search error:', err);
+                alert(`Error searching Spotify: ${err.message || 'Please try again.'}`);
+                return [];
+            });
         });
     }
 
